@@ -1,0 +1,8 @@
+{
+  "name": "Lucky Mini Games",
+  "description": "A collection of mini-games featuring a Dice Roller and an Eliminating Spin Wheel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
