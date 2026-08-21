@@ -1,7 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import confetti from "canvas-confetti";
-import { Settings, Plus, Trash2, PartyPopper } from "lucide-react";
+import { Settings, Plus, Trash2, PartyPopper, RotateCcw, ImagePlus } from "lucide-react";
 import { playWheelSpin, playWinSound } from "../lib/audio";
 
 const premiumColors = [
@@ -24,27 +24,82 @@ function getCoordinatesForPercent(percent: number) {
 interface Option {
   id: string;
   text: string;
+  image?: string;
 }
 
+const defaultOptions: Option[] = [
+  { id: "1", text: "100" },
+  { id: "2", text: "200" },
+  { id: "3", text: "500" },
+  { id: "4", text: "Trượt" },
+  { id: "5", text: "1000" },
+  { id: "6", text: "Chia đôi" },
+  { id: "7", text: "x2" },
+  { id: "8", text: "Thêm lượt" },
+];
+
 export default function WheelGame() {
-  const [options, setOptions] = useState<Option[]>([
-    { id: "1", text: "100" },
-    { id: "2", text: "200" },
-    { id: "3", text: "500" },
-    { id: "4", text: "Trượt" },
-    { id: "5", text: "1000" },
-    { id: "6", text: "Chia đôi" },
-    { id: "7", text: "x2" },
-    { id: "8", text: "Thêm lượt" },
-  ]);
+  const [initialOptions, setInitialOptions] = useState<Option[]>([]);
+  const [options, setOptions] = useState<Option[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
   
   const [isSpinning, setIsSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [winner, setWinner] = useState<Option | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [newOptionText, setNewOptionText] = useState("");
+  const [newOptionImage, setNewOptionImage] = useState<string | undefined>(undefined);
 
   const wheelRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const savedInitial = localStorage.getItem("wheel_initial_options");
+    const savedActive = localStorage.getItem("wheel_active_options");
+    
+    if (savedInitial) {
+      setInitialOptions(JSON.parse(savedInitial));
+      setOptions(savedActive ? JSON.parse(savedActive) : JSON.parse(savedInitial));
+    } else {
+      setInitialOptions(defaultOptions);
+      setOptions(defaultOptions);
+    }
+    setIsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem("wheel_initial_options", JSON.stringify(initialOptions));
+    localStorage.setItem("wheel_active_options", JSON.stringify(options));
+  }, [initialOptions, options, isLoaded]);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_SIZE = 120;
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > height) {
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+        } else {
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        setNewOptionImage(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   const spinWheel = () => {
     if (isSpinning || options.length === 0) return;
@@ -97,13 +152,28 @@ export default function WheelGame() {
 
   const handleAddOption = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOptionText.trim()) return;
-    setOptions(prev => [...prev, { id: Math.random().toString(), text: newOptionText.trim() }]);
+    if (!newOptionText.trim() && !newOptionImage) return;
+    const newOpt = { 
+      id: Math.random().toString(), 
+      text: newOptionText.trim() || "Thưởng", 
+      image: newOptionImage 
+    };
+    setOptions(prev => [...prev, newOpt]);
+    setInitialOptions(prev => [...prev, newOpt]);
     setNewOptionText("");
+    setNewOptionImage(undefined);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleRemoveOption = (id: string) => {
     setOptions(prev => prev.filter(o => o.id !== id));
+    setInitialOptions(prev => prev.filter(o => o.id !== id));
+  };
+
+  const handleReset = () => {
+    setOptions(initialOptions);
+    setWinner(null);
+    setRotation(0);
   };
 
   const renderWheel = () => {
@@ -153,12 +223,15 @@ export default function WheelGame() {
 
           const textPercent = startPercent + slicePercent / 2;
           const textAngle = textPercent * 360;
+          
+          const hasImage = !!opt.image;
+          const textX = hasImage ? "45" : "65";
 
           return (
             <g key={opt.id} className="transition-all duration-300">
               <path d={pathData} fill={premiumColors[i % premiumColors.length]} stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
               <text 
-                x="65" 
+                x={textX} 
                 y="0" 
                 fill="white"
                 fontSize={options.length > 12 ? "5" : "7"}
@@ -170,6 +243,22 @@ export default function WheelGame() {
               >
                 {opt.text}
               </text>
+              {hasImage && (
+                <g transform={`rotate(${textAngle})`}>
+                  <clipPath id={`clip-${opt.id}`}>
+                    <circle cx="72" cy="0" r="14" />
+                  </clipPath>
+                  <image 
+                    href={opt.image} 
+                    x="58" 
+                    y="-14" 
+                    width="28" 
+                    height="28" 
+                    clipPath={`url(#clip-${opt.id})`} 
+                    preserveAspectRatio="xMidYMid slice" 
+                  />
+                </g>
+              )}
             </g>
           );
         })}
@@ -187,15 +276,25 @@ export default function WheelGame() {
       {/* Game Area */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-neutral-900/40 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 relative overflow-hidden">
         
-        {/* Settings Toggle */}
-        <button 
-          onClick={() => setShowSettings(!showSettings)}
-          className="absolute top-6 right-6 p-3 bg-white/5 hover:bg-white/10 rounded-full text-neutral-300 transition-colors shadow-sm border border-white/10"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
+        {/* Top Right Controls */}
+        <div className="absolute top-6 right-6 flex gap-3 z-20">
+          <button 
+            onClick={handleReset}
+            className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-indigo-400 transition-colors shadow-sm border border-white/10"
+            title="Khôi phục vòng quay"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+          <button 
+            onClick={() => setShowSettings(!showSettings)}
+            className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-neutral-300 transition-colors shadow-sm border border-white/10"
+            title="Cài đặt vòng quay"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
 
-        <div className="relative w-72 h-72 sm:w-96 sm:h-96 mb-10" ref={wheelRef}>
+        <div className="relative w-72 h-72 sm:w-96 sm:h-96 mb-10 mt-8" ref={wheelRef}>
           {/* Pointer */}
           <div className="absolute -top-6 left-1/2 -translate-x-1/2 z-10 text-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor" className="transform rotate-180 text-rose-500">
@@ -230,9 +329,17 @@ export default function WheelGame() {
               className="bg-neutral-900 border border-white/10 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-indigo-500/20 to-transparent" />
-              <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6 relative z-10 border border-indigo-500/30">
-                <PartyPopper className="w-10 h-10 text-indigo-400" />
-              </div>
+              
+              {winner.image ? (
+                <div className="w-24 h-24 rounded-full mx-auto mb-6 relative z-10 border-4 border-indigo-500/30 overflow-hidden shadow-xl bg-neutral-800">
+                  <img src={winner.image} alt={winner.text} className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6 relative z-10 border border-indigo-500/30">
+                  <PartyPopper className="w-10 h-10 text-indigo-400" />
+                </div>
+              )}
+              
               <h3 className="text-neutral-400 font-medium uppercase tracking-widest text-sm mb-2 relative z-10">Bạn Quay Trúng</h3>
               <p className="text-4xl font-black text-white mb-8 relative z-10">{winner.text}</p>
               
@@ -261,18 +368,41 @@ export default function WheelGame() {
             </span>
           </div>
           
-          <form onSubmit={handleAddOption} className="flex gap-2 mb-6">
+          <form onSubmit={handleAddOption} className="flex gap-2 mb-6 relative">
+            {newOptionImage && (
+              <div className="absolute -top-12 left-0 w-10 h-10 rounded-lg overflow-hidden border-2 border-indigo-500 shadow-lg z-10 group/img">
+                <img src={newOptionImage} alt="preview" className="w-full h-full object-cover" />
+                <button 
+                  type="button" 
+                  onClick={() => { setNewOptionImage(undefined); if(fileInputRef.current) fileInputRef.current.value = ''; }}
+                  className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity"
+                >
+                  <Trash2 className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            )}
+            
+            <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageChange} className="hidden" />
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 rounded-xl transition-colors shrink-0"
+              title="Thêm hình ảnh"
+            >
+              <ImagePlus className="w-5 h-5" />
+            </button>
+
             <input 
               type="text" 
               value={newOptionText}
               onChange={(e) => setNewOptionText(e.target.value)}
-              placeholder="Thêm lựa chọn mới..."
-              className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-neutral-500 text-sm"
+              placeholder="Thêm lựa chọn..."
+              className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-neutral-500 text-sm min-w-0"
             />
             <button 
               type="submit"
-              disabled={!newOptionText.trim()}
-              className="p-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white rounded-xl transition-colors"
+              disabled={!newOptionText.trim() && !newOptionImage}
+              className="p-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white rounded-xl transition-colors shrink-0"
             >
               <Plus className="w-5 h-5" />
             </button>
@@ -285,7 +415,11 @@ export default function WheelGame() {
                 className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 group hover:border-white/20 hover:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" style={{ backgroundColor: premiumColors[i % premiumColors.length] }} />
+                  {opt.image ? (
+                    <img src={opt.image} alt={opt.text} className="w-6 h-6 rounded-full flex-shrink-0 object-cover shadow-sm" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full flex-shrink-0 shadow-sm" style={{ backgroundColor: premiumColors[i % premiumColors.length] }} />
+                  )}
                   <span className="text-sm font-medium text-neutral-200 truncate">{opt.text}</span>
                 </div>
                 <button 
